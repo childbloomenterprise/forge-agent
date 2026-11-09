@@ -77,6 +77,23 @@ export class Workspace {
     return hits;
   }
 
+  /** Raw ripgrep line matches for several regex patterns at once (case-insensitive). */
+  async grep(patterns: string[], globs: string[] = []): Promise<SearchHit[]> {
+    if (patterns.length === 0) return [];
+    const args = ['-n', '-i', '--no-heading', '--color', 'never', '--max-columns', '400', '-m', '400'];
+    for (const d of IGNORED_DIRS) args.push('-g', `!${d}/`);
+    for (const g of globs) args.push('-g', g);
+    for (const p of patterns) args.push('-e', p);
+    args.push('.');
+    const out = await run('rg', args, this.root).catch((e: RunError) => (e.code === 1 ? '' : Promise.reject(e)));
+    const hits: SearchHit[] = [];
+    for (const row of out.split('\n')) {
+      const m = /^(?:\.\/)?(.+?):(\d+):(.*)$/.exec(row);
+      if (m) hits.push({ path: m[1].split(path.sep).join('/'), line: Number(m[2]), text: m[3] });
+    }
+    return hits;
+  }
+
   /** Regex fallback for definitions (Python/JS/TS); VS Code uses the language server instead. */
   async findSymbol(name: string): Promise<SymbolHit[]> {
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

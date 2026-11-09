@@ -81,6 +81,23 @@
       case 'thread': add(el('div', 'thread', m.status === 'created' ? `▶ subagent ${m.threadId} started${m.title ? ': ' + m.title : ''}` : `■ subagent ${m.threadId} finished`)); break;
       case 'status': add(el('div', `status ${m.level}`, m.text)); scroll(); if (m.level !== 'info') { const b = $('banner'); b.textContent = m.text; b.hidden = false; } break;
       case 'review': review(m); break;
+      case 'context': {
+        const card = add(el('div', 'card context'));
+        const d = card.appendChild(el('details'));
+        d.open = true;
+        d.appendChild(el('summary', '', `Context: ${m.items.length} file(s), ${m.used}/${m.budget} tokens`));
+        const t = d.appendChild(el('table'));
+        const head = t.appendChild(el('tr'));
+        ['File', 'Why', 'Tokens'].forEach((h) => head.appendChild(el('th', '', h)));
+        for (const i of m.items) {
+          const r = t.appendChild(el('tr', i.mode));
+          r.appendChild(el('td', 'path', i.path));
+          r.appendChild(el('td', '', i.reason));
+          r.appendChild(el('td', 'num', i.mode === 'omitted' ? 'over budget' : `${i.tokens} (${i.mode})`));
+        }
+        scroll();
+        break;
+      }
       case 'approve': approve(m); break;
       case 'running': send.disabled = m.value; cancel.disabled = !m.value; if (m.value) $('banner').hidden = true; break;
       case 'model': $('model').textContent = m.text; break;

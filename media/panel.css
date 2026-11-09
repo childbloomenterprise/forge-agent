@@ -27,3 +27,10 @@ button { background: var(--vscode-button-background); color: var(--vscode-button
 button.secondary, #new, #cancel { background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); }
 button:disabled { opacity: .5; cursor: default; }
 .decided { opacity: .6; }
+
+.context table { width: 100%; border-collapse: collapse; font-size: .85em; margin-top: 4px; }
+.context th { text-align: left; opacity: .7; font-weight: normal; }
+.context td { padding: 2px 4px; vertical-align: top; border-top: 1px solid var(--vscode-panel-border); }
+.context td.path { font-family: var(--vscode-editor-font-family); white-space: nowrap; }
+.context td.num { white-space: nowrap; text-align: right; }
+.context tr.omitted { opacity: .5; }

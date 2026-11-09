@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { TrueForge } from '@truefoundry/trueforge-sdk';
+import { ContextEngine } from './context/engine';
 import { ReviewBroker, ReviewRequest } from './edits/reviews';
 import { startMcpServer, RunningMcpServer } from './mcp/server';
 import { prepareEdit, ToolDeps } from './mcp/tools';
@@ -41,9 +42,13 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     vscode.workspace.registerTextDocumentContentProvider(PROPOSED_SCHEME, { provideTextDocumentContent: (uri) => proposed.get(uri.query) ?? '' }),
   );
 
+  const context = new ContextEngine(ws);
+  const budget = () => vscode.workspace.getConfiguration('forgeAgent').get<number>('contextBudgetTokens', 12000);
   const deps: ToolDeps = {
     ws,
     reviews,
+    context,
+    contextBudget: budget(),
     onApplied: (path, before, after) => applied.push({ path, before, after }),
     onToolCall: (name, args) => out.appendLine(`[mcp] ${name} ${JSON.stringify(args).slice(0, 300)}`),
   };
@@ -172,7 +177,16 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       panel.post({ type: 'status', level: 'error', text: `TrueForge is not reachable at ${cfg.get('trueforgeUrl')} (${(e as Error).message}). Start it with: ${START_HINT}` });
       return;
     }
-    await runner.send(text);
+    let content = text;
+    try {
+      const pack = await context.build(text, budget());
+      panel.post({ type: 'context', items: pack.items, used: pack.used, budget: pack.budget, keywords: pack.keywords });
+      out.appendLine(`[context] ${pack.items.map((i) => `${i.path}:${i.mode}:${i.tokens}`).join(' ')}`);
+      if (pack.items.length) content = `${text}\n\n${pack.text}`;
+    } catch (e) {
+      panel.post({ type: 'status', level: 'warn', text: `Context retrieval failed (${(e as Error).message}); the agent will search on its own.` });
+    }
+    await runner.send(content);
   };
 
   const newSession = () => {

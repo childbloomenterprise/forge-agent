@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { ContextEngine } from '../context/engine';
 import { ReviewBroker, ReviewRequest } from '../edits/reviews';
 import { Workspace } from '../workspace';
 
@@ -8,6 +9,8 @@ export interface ToolDeps {
   reviews: ReviewBroker;
   /** Called after an edit is written, so the extension can offer "Undo agent change". */
   onApplied?: (path: string, before: string | undefined, after: string) => void;
+  context?: ContextEngine;
+  contextBudget?: number;
   /** Called for every tool call, for the activity log. */
   onToolCall?: (name: string, args: unknown) => void;
 }
@@ -90,6 +93,21 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
       return text(hits.length ? hits.map((h) => `${h.kind} ${h.container ? h.container + '.' : ''}${h.name} — ${h.path}:${h.line}`).join('\n') : `No definition found for ${name}.`);
     }),
   );
+
+  if (deps.context) {
+    const engine = deps.context;
+    server.registerTool(
+      'get_context',
+      {
+        description:
+          'Retrieve the most relevant files for a task description, ranked and packed into a token budget, with the reason each file was chosen. ' +
+          'Supports @path and @symbol:name mentions.',
+        inputSchema: { task: z.string(), budget_tokens: z.number().int().optional() },
+        annotations: { readOnlyHint: true },
+      },
+      guard(deps, 'get_context', async ({ task, budget_tokens }) => text((await engine.build(task, budget_tokens ?? deps.contextBudget ?? 12000)).text)),
+    );
+  }
 
   server.registerTool(
     'propose_edit',
