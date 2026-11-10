@@ -41,8 +41,9 @@ interface TurnResult {
   pending: PendingApproval[];
 }
 
-const MAX_RETRIES = 2;
-const MAX_WAIT_MS = 30_000;
+const MAX_RETRIES = 3;
+const MAX_WAIT_MS = 60_000;
+const RATE_LIMIT_BASE_MS = 15_000;
 const CONTINUE_INPUT = [
   { type: 'user.message', content: 'The previous model call failed. Continue the task from where it stopped, using the tool results above.' },
 ] as TurnInput;
@@ -222,7 +223,8 @@ export function isTransient(message: string): boolean {
 /** Uses the provider's "retry in Ns" / retryDelay hint when present, else exponential backoff. */
 export function retryDelayMs(message: string, attempt: number): number {
   const hint = /retry(?:Delay)?["\s:]*(?:in\s*)?"?(\d+(?:\.\d+)?)\s*s/i.exec(message);
-  const ms = hint ? Math.ceil(Number(hint[1]) * 1000) + 500 : 2000 * 2 ** (attempt - 1);
+  const base = /\b429\b|rate limit|quota/i.test(message) ? RATE_LIMIT_BASE_MS : 2000;
+  const ms = hint ? Math.ceil(Number(hint[1]) * 1000) + 500 : base * 2 ** (attempt - 1);
   return Math.min(ms, MAX_WAIT_MS);
 }
 

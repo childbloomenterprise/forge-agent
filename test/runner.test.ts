@@ -13,7 +13,9 @@ test('classifies errors', () => {
 test('retry delay honours provider hint and caps', () => {
   assert.equal(retryDelayMs('Please retry in 12.3s.', 1), 12800);
   assert.equal(retryDelayMs('"retryDelay": "7s"', 1), 7500);
-  assert.equal(retryDelayMs('Please retry in 300s', 1), 30000);
+  assert.equal(retryDelayMs('Please retry in 300s', 1), 60000);
+  assert.equal(retryDelayMs('Request failed (429): You exceeded your current quota', 1), 15000);
+  assert.equal(retryDelayMs('Request failed (429): You exceeded your current quota', 2), 30000);
   assert.equal(retryDelayMs('503', 1), 2000);
   assert.equal(retryDelayMs('503', 2), 4000);
 });
