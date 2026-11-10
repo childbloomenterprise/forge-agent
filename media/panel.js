@@ -4,7 +4,7 @@
   const $ = (id) => /** @type {HTMLElement} */ (document.getElementById(id));
   const log = $('log'), input = /** @type {HTMLTextAreaElement} */ ($('input'));
   const send = /** @type {HTMLButtonElement} */ ($('send')), cancel = /** @type {HTMLButtonElement} */ ($('cancel'));
-  const bubbles = new Map(), tools = new Map();
+  const bubbles = new Map(), tools = new Map(), cards = new Map();
 
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
   const add = (node) => { const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 30; log.appendChild(node); if (stick) log.scrollTop = log.scrollHeight; return node; };
@@ -37,12 +37,14 @@
       return box;
     });
     const row = card.appendChild(el('div', 'row'));
-    const decide = (accepted) => {
-      vscode.postMessage({ type: 'decision', id: m.id, accepted });
+    const finish = (accepted) => {
       card.classList.add('decided');
       row.replaceChildren(el('span', '', accepted.length ? `Accepted ${accepted.length}/${m.hunks.length} hunk(s)` : 'Rejected'));
       boxes.forEach((b) => (b.disabled = true));
+      cards.delete(m.id);
     };
+    cards.set(m.id, finish);
+    const decide = (accepted) => { vscode.postMessage({ type: 'decision', id: m.id, accepted }); finish(accepted); };
     const btn = (text, cls, fn) => { const b = row.appendChild(el('button', cls, text)); b.onclick = fn; };
     btn('Reject all', 'secondary', () => decide([]));
     btn('Accept selected', 'secondary', () => decide(boxes.flatMap((b, i) => (b.checked ? [m.hunks[i].index] : []))));
@@ -81,6 +83,7 @@
       case 'thread': add(el('div', 'thread', m.status === 'created' ? `▶ subagent ${m.threadId} started${m.title ? ': ' + m.title : ''}` : `■ subagent ${m.threadId} finished`)); break;
       case 'status': add(el('div', `status ${m.level}`, m.text)); scroll(); if (m.level !== 'info') { const b = $('banner'); b.textContent = m.text; b.hidden = false; } break;
       case 'review': review(m); break;
+      case 'reviewDone': cards.get(m.id)?.(m.accepted); break;
       case 'context': {
         const card = add(el('div', 'card context'));
         const d = card.appendChild(el('details'));

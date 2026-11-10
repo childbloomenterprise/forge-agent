@@ -55,6 +55,10 @@
       {
         "command": "forgeAgent.undoLastChange",
         "title": "Forge Agent: Undo Last Agent Change"
+      },
+      {
+        "command": "forgeAgent.inlineEdit",
+        "title": "Forge Agent: Inline Edit"
       }
     ],
     "keybindings": [
@@ -62,6 +66,12 @@
         "command": "forgeAgent.cancel",
         "key": "escape",
         "when": "forgeAgent.running"
+      },
+      {
+        "command": "forgeAgent.inlineEdit",
+        "key": "ctrl+i",
+        "mac": "cmd+i",
+        "when": "editorTextFocus && !forgeAgent.running"
       }
     ],
     "configuration": {
@@ -94,6 +104,14 @@
           "description": "Token budget for automatically retrieved context."
         }
       }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "forgeAgent.inlineEdit",
+          "group": "navigation@1"
+        }
+      ]
     }
   },
   "scripts": {

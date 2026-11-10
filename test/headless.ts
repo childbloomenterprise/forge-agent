@@ -1,6 +1,7 @@
 // Headless end-to-end driver: same MCP server + runner the extension uses, auto-accepting every hunk.
 // Usage: node out/test/headless.js <workspace> "<prompt>" [model,...]
 import { TrueForge } from '@truefoundry/trueforge-sdk';
+import { ContextEngine } from '../src/context/engine';
 import { ReviewBroker } from '../src/edits/reviews';
 import { prepareEdit, ToolDeps } from '../src/mcp/tools';
 import { startMcpServer } from '../src/mcp/server';
@@ -12,7 +13,8 @@ const [root, prompt, models = 'google-gemini/gemini-3-5-flash,groq/qwen3-8-27b']
 const t0 = Date.now();
 const log = (...a: unknown[]) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s]`, ...a);
 
-const deps: ToolDeps = { ws: new Workspace(root), reviews: new ReviewBroker(), onToolCall: (n, a) => log('MCP', n, JSON.stringify(a).slice(0, 120)) };
+const ws = new Workspace(root);
+const deps: ToolDeps = { ws, reviews: new ReviewBroker(), context: new ContextEngine(ws), contextBudget: 12000, onToolCall: (n, a) => log('MCP', n, JSON.stringify(a).slice(0, 120)) };
 const mcp = await startMcpServer(deps, 0);
 const client = new TrueForge({ baseUrl: process.env.TRUEFORGE_URL ?? 'http://localhost:8790', timeoutInSeconds: 900 });
 await registerMcpServer(client, mcp.url, mcp.token);
@@ -45,6 +47,8 @@ const runner = new AgentRunner(client, { models: models.split(','), workspaceNot
     return out;
   },
 });
-await runner.send(prompt);
+const pack = await deps.context!.build(prompt, 12000);
+log('CONTEXT', `${pack.used}/${pack.budget} tok`, pack.items.map((i) => `${i.path}(${i.mode})`).join(' '));
+await runner.send(`${prompt}\n\n${pack.text}`);
 log('streamed chars:', streamed);
 await mcp.close();

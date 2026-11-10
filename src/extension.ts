@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { TrueForge } from '@truefoundry/trueforge-sdk';
 import { ContextEngine } from './context/engine';
 import { ReviewBroker, ReviewRequest } from './edits/reviews';
+import { ReviewUi } from './edits/reviewUi';
 import { startMcpServer, RunningMcpServer } from './mcp/server';
 import { prepareEdit, ToolDeps } from './mcp/tools';
 import { AgentPanel, PanelInbound } from './panel/AgentPanel';
@@ -10,7 +11,6 @@ import { AgentRunner, PendingApproval, UiEvent } from './trueforge/runner';
 import { VsCodeWorkspace } from './vscodeWorkspace';
 import { describeWorkspace } from './workspace';
 
-const PROPOSED_SCHEME = 'forge-proposed';
 const START_HINT = `OUTBOUND_URL_ALLOWED_HOSTS='["127.0.0.1","localhost"]' npx @truefoundry/trueforge@latest`;
 
 interface AppliedChange {
@@ -37,10 +37,8 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const ws = new VsCodeWorkspace(folder.uri.fsPath);
   const reviews = new ReviewBroker();
   const applied: AppliedChange[] = [];
-  const proposed = new Map<string, string>();
-  ctx.subscriptions.push(
-    vscode.workspace.registerTextDocumentContentProvider(PROPOSED_SCHEME, { provideTextDocumentContent: (uri) => proposed.get(uri.query) ?? '' }),
-  );
+  const reviewUi = new ReviewUi();
+  ctx.subscriptions.push(reviewUi.register());
 
   const context = new ContextEngine(ws);
   const budget = () => vscode.workspace.getConfiguration('forgeAgent').get<number>('contextBudgetTokens', 12000);
@@ -90,14 +88,6 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       panel.post({ ...message, id });
     });
 
-  const showProposedDiff = async (req: ReviewRequest) => {
-    const key = `${req.key.slice(0, 12)}`;
-    proposed.set(key, req.proposed);
-    const right = vscode.Uri.from({ scheme: PROPOSED_SCHEME, path: `/${req.path}`, query: key });
-    const left = req.isNew ? vscode.Uri.from({ scheme: PROPOSED_SCHEME, path: `/${req.path}`, query: 'empty' }) : ws.uri(req.path);
-    await vscode.commands.executeCommand('vscode.diff', left, right, `Forge proposal: ${req.path}`, { preview: true, preserveFocus: true });
-  };
-
   const decide = async (pending: PendingApproval[], signal: AbortSignal) =>
     Promise.all(
       pending.map(async (p) => {
@@ -112,19 +102,19 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
             return { ...base, allow: false, reason: (e as Error).message };
           }
           if (req.hunks.length === 0) return { ...base, allow: false, reason: 'The edit makes no change to the file.' };
-          void showProposedDiff(req);
-          const accepted = await ask(
-            {
-              type: 'review',
-              path: req.path,
-              isNew: req.isNew,
-              summary: req.summary,
-              hunks: req.hunks.map((h) => ({ index: h.index, start: h.originalStart, removed: h.removed, added: h.added })),
-            },
-            signal,
-            (m) => m.accepted ?? [],
-            [] as number[],
-          );
+          const id = `d${++seq}`;
+          waiting.set(id, (m) => reviewUi.resolveExternally(id, m.accepted ?? []));
+          panel.post({
+            type: 'review',
+            id,
+            path: req.path,
+            isNew: req.isNew,
+            summary: req.summary,
+            hunks: req.hunks.map((h) => ({ index: h.index, start: h.originalStart, removed: h.removed, added: h.added })),
+          });
+          const accepted = await reviewUi.show(id, req, (rel) => ws.uri(rel), signal);
+          waiting.delete(id);
+          panel.post({ type: 'reviewDone', id, accepted, total: req.hunks.length });
           if (accepted.length === 0) return { ...base, allow: false, reason: `The user rejected every hunk of the edit to ${req.path}.` };
           reviews.record(req.key, accepted);
           return { ...base, allow: true };
@@ -167,7 +157,47 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   };
 
   const runner = new AgentRunner(client, { models: cfg.get<string[]>('models', []), workspaceNotes: await describeWorkspace(ws) }, { onEvent, decide });
+  const inlineRunner = new AgentRunner(
+    client,
+    { models: cfg.get<string[]>('models', []), workspaceNotes: await describeWorkspace(ws), iterationLimit: 10 },
+    { onEvent, decide },
+  );
   showModel(runner.model);
+
+  const inlineEdit = async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || editor.document.uri.scheme !== 'file') return void vscode.window.showInformationMessage('Forge Agent: open a file to edit inline.');
+    if (runner.running || inlineRunner.running) return void vscode.window.showWarningMessage('Forge Agent: a turn is already running.');
+    const doc = editor.document;
+    const rel = ws.relative(doc.uri.fsPath);
+    const range = editor.selection.isEmpty ? await enclosingRange(doc, editor.selection.active) : new vscode.Range(editor.selection.start.line, 0, editor.selection.end.line, doc.lineAt(editor.selection.end.line).text.length);
+    editor.selection = new vscode.Selection(range.start, range.end);
+    const where = `${rel}:${range.start.line + 1}-${range.end.line + 1}`;
+    const instruction = await vscode.window.showInputBox({ title: `Forge inline edit — ${where}`, prompt: 'Describe the change', ignoreFocusOut: true });
+    if (!instruction) return;
+    try {
+      await ensureRegistered();
+    } catch (e) {
+      return void panel.post({ type: 'status', level: 'error', text: `TrueForge is not reachable (${(e as Error).message}). Start it with: ${START_HINT}` });
+    }
+    panel.post({ type: 'user', text: `Inline edit ${where}: ${instruction}` });
+    const pack = await context.build(`${instruction} @${rel}`, Math.min(4000, budget())).catch(() => undefined);
+    if (pack) panel.post({ type: 'context', items: pack.items, used: pack.used, budget: pack.budget, keywords: pack.keywords });
+    const content =
+      `Inline edit in ${rel}, lines ${range.start.line + 1}-${range.end.line + 1}.\nInstruction: ${instruction}\n\n` +
+      `Selected code:\n\`\`\`\n${doc.getText(range)}\n\`\`\`\n` +
+      `Make the change with one propose_edit call on ${rel}, copying old_text exactly from the selected code. ` +
+      `Keep the edit inside the selection unless the instruction requires more. Do not run commands.` +
+      (pack ? `\n\n${pack.text}` : '');
+    inlineRunner.reset();
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: `Forge inline edit: ${where}`, cancellable: true },
+      async (_progress, token) => {
+        token.onCancellationRequested(() => void cancel());
+        await inlineRunner.send(content);
+      },
+    );
+  };
 
   const send = async (text: string) => {
     panel.post({ type: 'user', text });
@@ -199,7 +229,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   const cancel = async () => {
     for (const resolve of waiting.values()) resolve({ type: 'decision', id: '', accepted: [], allow: false });
     waiting.clear();
-    await runner.cancel();
+    await Promise.all([runner.cancel(), inlineRunner.cancel()]);
   };
 
   ctx.subscriptions.push(
@@ -214,6 +244,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     }),
     vscode.commands.registerCommand('forgeAgent.focus', () => vscode.commands.executeCommand(`${AgentPanel.viewId}.focus`)),
     vscode.commands.registerCommand('forgeAgent.cancel', cancel),
+    vscode.commands.registerCommand('forgeAgent.inlineEdit', inlineEdit),
     vscode.commands.registerCommand('forgeAgent.newSession', newSession),
     vscode.commands.registerCommand('forgeAgent.undoLastChange', async () => {
       const last = applied.pop();
@@ -228,6 +259,25 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       panel.post({ type: 'status', level: 'info', text: `Reverted agent change to ${last.path}.` });
     }),
   );
+}
+
+/** Innermost function/class/method around the cursor, else ±10 lines. */
+async function enclosingRange(doc: vscode.TextDocument, pos: vscode.Position): Promise<vscode.Range> {
+  const symbols = (await vscode.commands.executeCommand<vscode.DocumentSymbol[]>('vscode.executeDocumentSymbolProvider', doc.uri)) ?? [];
+  const kinds = new Set([vscode.SymbolKind.Function, vscode.SymbolKind.Method, vscode.SymbolKind.Class]);
+  let best: vscode.Range | undefined;
+  const walk = (list: vscode.DocumentSymbol[]) => {
+    for (const s of list) {
+      if (!s.range.contains(pos)) continue;
+      if (kinds.has(s.kind)) best = s.range;
+      walk(s.children ?? []);
+    }
+  };
+  walk(symbols);
+  if (best) return new vscode.Range(best.start.line, 0, best.end.line, doc.lineAt(best.end.line).text.length);
+  const start = Math.max(0, pos.line - 10);
+  const end = Math.min(doc.lineCount - 1, pos.line + 10);
+  return new vscode.Range(start, 0, end, doc.lineAt(end).text.length);
 }
 
 export function deactivate(): void {}
