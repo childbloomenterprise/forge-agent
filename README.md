@@ -22,11 +22,11 @@ streaming output, per-hunk diff review and fallback status in VS Code.
 | Capability | State |
 |---|---|
 | Agent panel with token streaming and cancel | done |
-| Editor tools over MCP: `read_file`, `list_dir`, `search`, `find_symbol`, `propose_edit`, `run_command` | done |
-| Edits gated by TrueForge tool approval; per-hunk accept/reject; native undo + "Undo Last Agent Change" | done (panel review) |
-| Retry with provider retry-hint, then automatic model fallback with session replay | done |
-| Inline edit (Ctrl+I) with in-editor diff | planned |
-| Context engine: repo map + keyword retrieval + `@file`/`@symbol`, token budget, visible report | planned |
+| Editor tools over MCP: `read_file`, `list_dir`, `search`, `find_symbol`, `get_context`, `propose_edit`, `run_command` | done |
+| Edits gated by TrueForge tool approval; per-hunk accept/reject; native undo + "Undo Last Agent Change" | done (panel card + diff editor CodeLenses) |
+| Retry with provider retry-hint, then automatic model fallback with session replay; unreachable/bad-key models switch in ~1 s | done |
+| Inline edit (Ctrl+I / editor context menu) on the selection or enclosing function, reviewed in the diff editor | done |
+| Context engine: keyword + symbol + filename ranking, test/doc companions, `@file`/`@symbol:name`, token budget, visible "why these files" report | done |
 
 ## Setup
 
@@ -59,6 +59,26 @@ Requirements: Node 20+, VS Code 1.90+, `ripgrep` on `PATH`.
 | `forgeAgent.mcpPort` | `9317` | Local MCP port (falls back to a random port if taken) |
 | `forgeAgent.contextBudgetTokens` | `12000` | Context budget for retrieval |
 
+## How context retrieval works
+
+Before each request the extension builds a context pack and shows it in the panel:
+
+1. Keywords are taken from the request (stop words removed, light stemming) and searched with ripgrep at word starts.
+2. Files are scored by keyword frequency weighted by rarity (IDF), filename matches and symbol definitions
+   (`def`/`class`/`function`). Tests, docs and changelogs are down-weighted as primary hits.
+3. Each top source file pulls in its companions (`tests/test_<name>.py`, `docs/<name>.rst`) so the agent edits code,
+   tests and docs together. `@path` and `@symbol:name` mentions are always included.
+4. Files are packed into `forgeAgent.contextBudgetTokens`: whole file when small, otherwise an outline plus the
+   best-matching windows, else omitted. The report lists every file with its reason, token count and mode.
+
+The same retrieval is exposed to the agent as the `get_context` MCP tool.
+
+## Rate limits
+
+Free tiers are tight: Gemini's free tier allows about 20 requests per day per model, and Groq's free tier rejects
+requests over 8K tokens per minute. The agent is instructed to batch independent tool calls into one step, and the
+extension waits on 429s (using the provider's retry hint) before falling back.
+
 ## How safety works
 
 - `propose_edit` is annotated as a write tool, and the session spec sets `require_approval_for_tools: ["@write", "@destructive"]`,
@@ -73,8 +93,8 @@ Requirements: Node 20+, VS Code 1.90+, `ripgrep` on `PATH`.
 
 ```bash
 npm run typecheck
-npm test                      # unit tests (hunks, replacements, retry policy)
-node out/test/headless.mjs <workspace> "<task>" [model,...]   # headless end-to-end run against TrueForge, auto-accepting hunks
+npm test                      # unit tests (hunks, replacements, retry policy, context ranking)
+CONTEXT_BUDGET=12000 node out/test/headless.mjs <workspace> "<task>" [model,...]   # headless end-to-end run against TrueForge, auto-accepting hunks
 ```
 
 ## Licence
