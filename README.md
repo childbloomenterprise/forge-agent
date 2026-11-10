@@ -94,6 +94,7 @@ extension waits on 429s (using the provider's retry hint) before falling back.
 ```bash
 npm run typecheck
 npm test                      # unit tests (hunks, replacements, retry policy, context ranking)
+node test/mock-flask-llm.mjs   # scripted model (port 9101, key "good") that performs Flask Task A with no API quota
 CONTEXT_BUDGET=12000 node out/test/headless.mjs <workspace> "<task>" [model,...]   # headless end-to-end run against TrueForge, auto-accepting hunks
 ```
 
