@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isTransient, retryDelayMs } from '../src/trueforge/runner';
+import { classifyError, isTransient, retryDelayMs } from '../src/trueforge/runner';
 
 test('classifies errors', () => {
   assert.equal(isTransient('[Model Error] Request failed (429): You exceeded your current quota'), true);
@@ -18,4 +18,12 @@ test('retry delay honours provider hint and caps', () => {
   assert.equal(retryDelayMs('Request failed (429): You exceeded your current quota', 2), 30000);
   assert.equal(retryDelayMs('503', 1), 2000);
   assert.equal(retryDelayMs('503', 2), 4000);
+});
+
+test('error kinds drive retry/fallback', () => {
+  assert.equal(classifyError('[Model Error] Cannot connect to API: bad port'), 'unreachable');
+  assert.equal(classifyError('Request failed (413): Request too large for model'), 'too_large');
+  assert.equal(classifyError('Request failed (429): Rate limit reached'), 'rate_limit');
+  assert.equal(classifyError('Request failed (400): API key not valid'), 'auth');
+  assert.equal(classifyError('Request failed (503)'), 'server');
 });

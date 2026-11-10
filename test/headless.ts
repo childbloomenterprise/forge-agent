@@ -47,7 +47,7 @@ const runner = new AgentRunner(client, { models: models.split(','), workspaceNot
     return out;
   },
 });
-const pack = await deps.context!.build(prompt, 12000);
+const pack = await deps.context!.build(prompt, Number(process.env.CONTEXT_BUDGET ?? 12000));
 log('CONTEXT', `${pack.used}/${pack.budget} tok`, pack.items.map((i) => `${i.path}(${i.mode})`).join(' '));
 await runner.send(`${prompt}\n\n${pack.text}`);
 log('streamed chars:', streamed);

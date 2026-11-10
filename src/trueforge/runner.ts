@@ -41,7 +41,6 @@ interface TurnResult {
   pending: PendingApproval[];
 }
 
-const MAX_RETRIES = 3;
 const MAX_WAIT_MS = 60_000;
 const RATE_LIMIT_BASE_MS = 15_000;
 const CONTINUE_INPUT = [
@@ -116,10 +115,12 @@ export class AgentRunner {
   }
 
   /**
-   * Transient errors (429/5xx/network) wait and retry the same model, honouring the provider's retry hint.
-   * When retries run out, or the error is permanent (bad key, unreachable), move to the next model and replay.
+   * Rate limits and 5xx wait and retry the same model (honouring the provider's retry hint); an unreachable endpoint
+   * gets one quick retry. Then the session is switched to the next usable model and the request replayed.
+   * Models that failed permanently (bad key, unreachable, request too large) are not retried in this request.
    */
   private async runWithFallback(input: TurnInput, signal: AbortSignal): Promise<TurnResult> {
+    const dead = new Set<number>();
     let attempts = 0;
     let switches = 0;
     for (;;) {
@@ -128,16 +129,20 @@ export class AgentRunner {
       // Approvals are consumed by the failed turn, so a replay continues from the session history instead.
       if (input?.some((i: { type: string }) => i.type !== 'user.message')) input = CONTINUE_INPUT;
       const reason = result.message ?? 'unknown error';
-      if (isTransient(reason) && attempts < MAX_RETRIES) {
+      const kind = classifyError(reason);
+      if (attempts < RETRIES[kind]) {
         attempts++;
-        const wait = retryDelayMs(reason, attempts);
-        this.hooks.onEvent({ type: 'status', level: 'warn', text: `${this.model}: ${shortReason(reason)} — retry ${attempts}/${MAX_RETRIES} in ${Math.round(wait / 1000)}s` });
+        const wait = kind === 'unreachable' ? 1000 : retryDelayMs(reason, attempts);
+        this.hooks.onEvent({ type: 'status', level: 'warn', text: `${this.model}: ${shortReason(reason)} — retry ${attempts}/${RETRIES[kind]} in ${Math.round(wait / 1000)}s` });
         await sleep(wait, signal);
         continue;
       }
-      if (this.config.models.length < 2 || switches >= this.config.models.length * 2) return result;
+      if (kind !== 'rate_limit') dead.add(this.modelIndex);
+      const next = this.config.models.findIndex((_, i) => i !== this.modelIndex && !dead.has(i) && i > this.modelIndex) ;
+      const wrap = next >= 0 ? next : this.config.models.findIndex((_, i) => i !== this.modelIndex && !dead.has(i));
+      if (wrap < 0 || switches >= this.config.models.length * 2) return result;
       const from = this.model;
-      this.modelIndex = (this.modelIndex + 1) % this.config.models.length;
+      this.modelIndex = wrap;
       switches++;
       attempts = 0;
       await this.client.sessions.update(this.sessionId!, { agent: { spec: this.spec() } } as never);
@@ -215,9 +220,22 @@ export class AgentRunner {
   }
 }
 
+export type ErrorKind = 'auth' | 'unreachable' | 'rate_limit' | 'server' | 'too_large' | 'other';
+
+const RETRIES: Record<ErrorKind, number> = { auth: 0, unreachable: 1, rate_limit: 3, server: 2, too_large: 0, other: 0 };
+
+export function classifyError(message: string): ErrorKind {
+  if (/\b(401|403)\b|invalid.*key|key not valid|unauthori[sz]ed|permission denied/i.test(message)) return 'auth';
+  if (/\b413\b|too large|context length|maximum context/i.test(message)) return 'too_large';
+  if (/\b429\b|rate limit|quota/i.test(message)) return 'rate_limit';
+  if (/Cannot connect|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|bad port|fetch failed|getaddrinfo/i.test(message)) return 'unreachable';
+  if (/\b(408|5\d\d)\b|timeout|timed out|overloaded|ECONNRESET/i.test(message)) return 'server';
+  return 'other';
+}
+
 export function isTransient(message: string): boolean {
-  if (/\b(401|403)\b|invalid.*key|unauthori[sz]ed|permission/i.test(message)) return false;
-  return /\b(408|429|5\d\d)\b|timeout|timed out|ECONN|ENOTFOUND|EAI_AGAIN|fetch failed|Cannot connect|rate limit|overloaded/i.test(message);
+  const kind = classifyError(message);
+  return kind === 'rate_limit' || kind === 'server' || kind === 'unreachable';
 }
 
 /** Uses the provider's "retry in Ns" / retryDelay hint when present, else exponential backoff. */
