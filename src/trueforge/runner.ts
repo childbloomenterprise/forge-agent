@@ -36,6 +36,8 @@ export interface RunnerConfig {
 type TurnInput = Parameters<TrueForge['sessions']['createTurnStream']>[1]['input'];
 
 interface TurnResult {
+  /** The model ended the turn with no text and no tool calls (a known Gemini failure mode on long contexts). */
+  empty?: boolean;
   status: 'done' | 'error' | 'cancelled';
   message?: string;
   pending: PendingApproval[];
@@ -43,6 +45,14 @@ interface TurnResult {
 
 const MAX_WAIT_MS = 60_000;
 const RATE_LIMIT_BASE_MS = 15_000;
+const MAX_NUDGES = 2;
+const NUDGE_INPUT = [
+  {
+    type: 'user.message',
+    content: 'Your last reply was empty. Continue the task: make the remaining edits with propose_edit, then verify.',
+  },
+] as TurnInput;
+
 const CONTINUE_INPUT = [
   { type: 'user.message', content: 'The previous model call failed. Continue the task from where it stopped, using the tool results above.' },
 ] as TurnInput;
@@ -85,8 +95,15 @@ export class AgentRunner {
         this.sessionId = data.id;
       }
       let input: TurnInput = [{ type: 'user.message', content: text }] as TurnInput;
+      let nudges = 0;
       for (;;) {
         const result = await this.runWithFallback(input, abort.signal);
+        if (result.empty && nudges < MAX_NUDGES) {
+          nudges++;
+          this.hooks.onEvent({ type: 'status', level: 'warn', text: `${this.model} returned an empty reply; asking it to continue (${nudges}/${MAX_NUDGES})` });
+          input = NUDGE_INPUT;
+          continue;
+        }
         if (result.status !== 'done' || result.pending.length === 0) {
           this.hooks.onEvent({ type: 'turn', status: result.status, message: result.message });
           return;
@@ -175,7 +192,9 @@ export class AgentRunner {
     }
     if (signal.aborted) return { status: 'cancelled', pending: [] };
     const state = done?.state ?? { status: 'error', message: 'stream ended without turn.done' };
-    return { status: state.status, message: state.message, pending };
+    const out = state.output;
+    const empty = state.status === 'done' && !pending.length && out?.type === 'model.message' && !out.content && !(out.toolCalls ?? out.tool_calls)?.length;
+    return { status: state.status, message: state.message, pending, empty };
   }
 
   private translate(e: any, events: Map<string, any>, pending: PendingApproval[]): void {
