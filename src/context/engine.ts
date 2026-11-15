@@ -35,6 +35,10 @@ const STOPWORDS = new Set(
 const COMMON_DF_RATIO = 0.35;
 const SECONDARY_PRIOR = 0.4;
 const FULL_FILE_MAX_TOKENS = 3000;
+/** The top-ranked file may be shown whole if it fits in this share of the budget, so the agent can edit it without re-reading. */
+const PRIMARY_FILE_SHARE = 0.65;
+/** Files scoring below this fraction of the best score are listed but not packed. */
+const MIN_RELATIVE_SCORE = 0.15;
 const SNIPPET_RADIUS = 12;
 const MAX_SNIPPETS = 4;
 const MAX_FILES = 8;
@@ -202,13 +206,17 @@ export class ContextEngine {
     const items: ContextItem[] = [];
     const blocks: string[] = [];
     let used = 0;
-    for (const c of selected) {
+    const top = selected[0]?.score ?? 0;
+    for (const [rank, c] of selected.entries()) {
       const reason = c.reasons.filter(Boolean).join('; ');
       const text = await this.ws.readFile(c.path).catch(() => '');
       const full = estimateTokens(text);
       let block: string | undefined;
       let mode: ContextMode = 'omitted';
-      if (full <= FULL_FILE_MAX_TOKENS && used + full <= budget) {
+      const fullLimit = rank === 0 && !c.path.match(/(^|\/)(tests?|docs)\//) ? budget * PRIMARY_FILE_SHARE : FULL_FILE_MAX_TOKENS;
+      if (!c.forced && c.score < top * MIN_RELATIVE_SCORE) {
+        // weak match: report it, but leave the budget for better files
+      } else if (full <= fullLimit && used + full <= budget) {
         block = `### ${c.path} (full file)\n\`\`\`\n${text}\n\`\`\``;
         mode = 'full';
       } else {

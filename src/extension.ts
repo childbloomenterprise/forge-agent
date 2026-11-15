@@ -41,7 +41,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
   ctx.subscriptions.push(reviewUi.register());
 
   const context = new ContextEngine(ws);
-  const budget = () => vscode.workspace.getConfiguration('forgeAgent').get<number>('contextBudgetTokens', 12000);
+  const budget = () => vscode.workspace.getConfiguration('forgeAgent').get<number>('contextBudgetTokens', 16000);
   const deps: ToolDeps = {
     ws,
     reviews,

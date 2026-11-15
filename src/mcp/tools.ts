@@ -105,7 +105,7 @@ export function registerTools(server: McpServer, deps: ToolDeps): void {
         inputSchema: { task: z.string(), budget_tokens: z.number().int().optional() },
         annotations: { readOnlyHint: true },
       },
-      guard(deps, 'get_context', async ({ task, budget_tokens }) => text((await engine.build(task, budget_tokens ?? deps.contextBudget ?? 12000)).text)),
+      guard(deps, 'get_context', async ({ task, budget_tokens }) => text((await engine.build(task, budget_tokens ?? deps.contextBudget ?? 16000)).text)),
     );
   }
 

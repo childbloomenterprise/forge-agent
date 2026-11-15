@@ -100,7 +100,7 @@
         },
         "forgeAgent.contextBudgetTokens": {
           "type": "number",
-          "default": 12000,
+          "default": 16000,
           "description": "Token budget for automatically retrieved context."
         }
       }

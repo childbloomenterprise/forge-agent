@@ -57,7 +57,7 @@ Requirements: Node 20+, VS Code 1.90+, `ripgrep` on `PATH`.
 | `forgeAgent.trueforgeUrl` | `http://localhost:8790` | TrueForge server |
 | `forgeAgent.models` | `["google-gemini/gemini-3-5-flash", "groq/qwen3-8-27b"]` | Primary first, then fallbacks |
 | `forgeAgent.mcpPort` | `9317` | Local MCP port (falls back to a random port if taken) |
-| `forgeAgent.contextBudgetTokens` | `12000` | Context budget for retrieval |
+| `forgeAgent.contextBudgetTokens` | `16000` | Context budget for retrieval |
 
 ## How context retrieval works
 
@@ -95,7 +95,7 @@ extension waits on 429s (using the provider's retry hint) before falling back.
 npm run typecheck
 npm test                      # unit tests (hunks, replacements, retry policy, context ranking)
 node test/mock-flask-llm.mjs   # scripted model (port 9101, key "good") that performs Flask Task A with no API quota
-CONTEXT_BUDGET=12000 node out/test/headless.mjs <workspace> "<task>" [model,...]   # headless end-to-end run against TrueForge, auto-accepting hunks
+CONTEXT_BUDGET=16000 node out/test/headless.mjs <workspace> "<task>" [model,...]   # headless end-to-end run against TrueForge, auto-accepting hunks
 ```
 
 ## Licence

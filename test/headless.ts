@@ -14,7 +14,7 @@ const t0 = Date.now();
 const log = (...a: unknown[]) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s]`, ...a);
 
 const ws = new Workspace(root);
-const deps: ToolDeps = { ws, reviews: new ReviewBroker(), context: new ContextEngine(ws), contextBudget: 12000, onToolCall: (n, a) => log('MCP', n, JSON.stringify(a).slice(0, 120)) };
+const deps: ToolDeps = { ws, reviews: new ReviewBroker(), context: new ContextEngine(ws), contextBudget: 16000, onToolCall: (n, a) => log('MCP', n, JSON.stringify(a).slice(0, 120)) };
 const mcp = await startMcpServer(deps, 0);
 const client = new TrueForge({ baseUrl: process.env.TRUEFORGE_URL ?? 'http://localhost:8790', timeoutInSeconds: 900 });
 await registerMcpServer(client, mcp.url, mcp.token);
@@ -47,7 +47,7 @@ const runner = new AgentRunner(client, { models: models.split(','), workspaceNot
     return out;
   },
 });
-const pack = await deps.context!.build(prompt, Number(process.env.CONTEXT_BUDGET ?? 12000));
+const pack = await deps.context!.build(prompt, Number(process.env.CONTEXT_BUDGET ?? 16000));
 log('CONTEXT', `${pack.used}/${pack.budget} tok`, pack.items.map((i) => `${i.path}(${i.mode})`).join(' '));
 await runner.send(`${prompt}\n\n${pack.text}`);
 log('streamed chars:', streamed);

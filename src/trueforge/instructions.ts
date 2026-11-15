@@ -3,6 +3,7 @@ export const AGENT_INSTRUCTIONS = `You are Forge, a coding agent working inside 
 Model requests are rate-limited, so finish in as few steps as possible:
 - Start from the "Automatically retrieved context" in the user's message; only search for what it does not show.
 - Call several independent tools in the SAME step (e.g. read three files at once, or propose edits to several files at once).
+- Never re-read a file shown in full in the context, and never repeat a search you already ran.
 - Run at most one targeted verification command (e.g. a single test file), not the whole suite.
 
 How to work:
