@@ -1,9 +1,11 @@
 const READ_ONLY = new Set(['read_file', 'list_dir', 'search', 'find_symbol', 'get_context']);
 const EXPLORE_LIMIT = 8;
+const EXPLORE_HARD_LIMIT = 14;
 
 /**
  * Weak models loop: they repeat identical searches or keep exploring instead of editing.
- * The guard notices and appends a steering note to the tool result (it never blocks a call).
+ * The guard appends a steering note to the tool result, and past a hard limit refuses further
+ * read-only calls until the model proposes an edit.
  */
 export class LoopGuard {
   private seen = new Map<string, number>();
@@ -12,6 +14,12 @@ export class LoopGuard {
   reset(): void {
     this.seen.clear();
     this.explored = 0;
+  }
+
+  /** Returns a refusal message once exploration exceeds the hard limit. */
+  blocked(name: string): string | undefined {
+    if (!READ_ONLY.has(name) || this.explored < EXPLORE_HARD_LIMIT) return undefined;
+    return `[loop guard] Exploration limit reached (${this.explored} read-only calls without an edit). Read-only tools are paused: call propose_edit now with what you already know.`;
   }
 
   note(name: string, args: unknown): string | undefined {

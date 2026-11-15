@@ -26,6 +26,8 @@ const fail = (t: string): ToolResult => ({ content: [{ type: 'text', text: t }],
 function guard<A>(deps: ToolDeps, name: string, fn: (args: A) => Promise<ToolResult>) {
   return async (args: A): Promise<ToolResult> => {
     deps.onToolCall?.(name, args);
+    const refusal = deps.loopGuard?.blocked(name);
+    if (refusal) return fail(refusal);
     try {
       const result = await fn(args);
       const note = deps.loopGuard?.note(name, args);

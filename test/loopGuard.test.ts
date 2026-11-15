@@ -16,3 +16,12 @@ test('nudges after long exploration and resets on edit', () => {
   g.note('propose_edit', {});
   assert.equal(g.note('read_file', { path: 'x' }), undefined);
 });
+
+test('pauses read-only tools past the hard limit until an edit', () => {
+  const g = new LoopGuard();
+  for (let i = 0; i < 14; i++) g.note('search', { query: `q${i}` });
+  assert.match(g.blocked('search') ?? '', /Exploration limit reached/);
+  assert.equal(g.blocked('propose_edit'), undefined);
+  g.note('propose_edit', {});
+  assert.equal(g.blocked('search'), undefined);
+});
