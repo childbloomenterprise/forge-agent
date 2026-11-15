@@ -5,6 +5,7 @@ import { ReviewBroker, ReviewRequest } from './edits/reviews';
 import { ReviewUi } from './edits/reviewUi';
 import { startMcpServer, RunningMcpServer } from './mcp/server';
 import { prepareEdit, ToolDeps } from './mcp/tools';
+import { LoopGuard } from './mcp/loopGuard';
 import { AgentPanel, PanelInbound } from './panel/AgentPanel';
 import { registerMcpServer } from './trueforge/register';
 import { AgentRunner, PendingApproval, UiEvent } from './trueforge/runner';
@@ -42,7 +43,9 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
 
   const context = new ContextEngine(ws);
   const budget = () => vscode.workspace.getConfiguration('forgeAgent').get<number>('contextBudgetTokens', 16000);
+  const loopGuard = new LoopGuard();
   const deps: ToolDeps = {
+    loopGuard,
     ws,
     reviews,
     context,
@@ -194,6 +197,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
       { location: vscode.ProgressLocation.Notification, title: `Forge inline edit: ${where}`, cancellable: true },
       async (_progress, token) => {
         token.onCancellationRequested(() => void cancel());
+        loopGuard.reset();
         await inlineRunner.send(content);
       },
     );
@@ -216,6 +220,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<void> {
     } catch (e) {
       panel.post({ type: 'status', level: 'warn', text: `Context retrieval failed (${(e as Error).message}); the agent will search on its own.` });
     }
+    loopGuard.reset();
     await runner.send(content);
   };
 

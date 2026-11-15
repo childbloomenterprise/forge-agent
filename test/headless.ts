@@ -1,6 +1,7 @@
 // Headless end-to-end driver: same MCP server + runner the extension uses, auto-accepting every hunk.
 // Usage: node out/test/headless.js <workspace> "<prompt>" [model,...]
 import { TrueForge } from '@truefoundry/trueforge-sdk';
+import { LoopGuard } from '../src/mcp/loopGuard';
 import { ContextEngine } from '../src/context/engine';
 import { ReviewBroker } from '../src/edits/reviews';
 import { prepareEdit, ToolDeps } from '../src/mcp/tools';
@@ -14,7 +15,7 @@ const t0 = Date.now();
 const log = (...a: unknown[]) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s]`, ...a);
 
 const ws = new Workspace(root);
-const deps: ToolDeps = { ws, reviews: new ReviewBroker(), context: new ContextEngine(ws), contextBudget: 16000, onToolCall: (n, a) => log('MCP', n, JSON.stringify(a).slice(0, 120)) };
+const deps: ToolDeps = { ws, loopGuard: new LoopGuard(), reviews: new ReviewBroker(), context: new ContextEngine(ws), contextBudget: 16000, onToolCall: (n, a) => log('MCP', n, JSON.stringify(a).slice(0, 120)) };
 const mcp = await startMcpServer(deps, 0);
 const client = new TrueForge({ baseUrl: process.env.TRUEFORGE_URL ?? 'http://localhost:8790', timeoutInSeconds: 900 });
 await registerMcpServer(client, mcp.url, mcp.token);

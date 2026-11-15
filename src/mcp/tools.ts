@@ -1,3 +1,4 @@
+import { LoopGuard } from './loopGuard';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { ContextEngine } from '../context/engine';
@@ -13,6 +14,7 @@ export interface ToolDeps {
   contextBudget?: number;
   /** Called for every tool call, for the activity log. */
   onToolCall?: (name: string, args: unknown) => void;
+  loopGuard?: LoopGuard;
 }
 
 const MAX_READ_LINES = 1500;
@@ -25,7 +27,10 @@ function guard<A>(deps: ToolDeps, name: string, fn: (args: A) => Promise<ToolRes
   return async (args: A): Promise<ToolResult> => {
     deps.onToolCall?.(name, args);
     try {
-      return await fn(args);
+      const result = await fn(args);
+      const note = deps.loopGuard?.note(name, args);
+      if (note) result.content.push({ type: 'text', text: note });
+      return result;
     } catch (e) {
       return fail(`${name} failed: ${(e as Error).message}`);
     }
