@@ -1,6 +1,6 @@
 # Forge Agent: a VS Code coding agent on TrueForge
 
-**Team:** _<Team ID>_ · **Repo:** https://github.com/childbloomenterprise/forge-agent · **Video:** _<link>_
+**Team:** TM-F8AE7773192 (competition ID TFF-51725D9BE94F) · **Repo:** https://github.com/childbloomenterprise/forge-agent · **Video:** _<link>_
 
 ## 1. What it is
 
